@@ -395,7 +395,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if is_update_request:
-        await update.message.reply_text('Информация успешно обновлена! Используйте /help для сводки.')
+        try:
+            schedule_chat_reminders(chat_id, new_path, context)
+            await update.message.reply_text('Информация успешно обновлена, напоминания запланированы!\n• Используйте /help для сводки.')
+        except Exception as exc:
+            await update.message.reply_text(f'Не удалось запланировать напоминания: {exc}')
     else:
         await update.message.reply_text('Файл сохранён для этого чата. Используйте /help для сводки.')
 
