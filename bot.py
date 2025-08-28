@@ -321,8 +321,28 @@ async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = format_info(items)
     await update.message.reply_html(text)
 
+async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    
+    # Check if this is the authorized user
+    if chat_id != 669636800:
+        await update.message.reply_text(
+            'У вас нет прав для использования этой команды. '
+            'Доступ ограничен для администратора бота.'
+        )
+        return
+    
+    # Set a flag in context to indicate this is an update request
+    context.user_data['expecting_update'] = True
+    
+    await update.message.reply_text(
+        'Отправьте новый Excel-файл для обновления информации. '
+        'Файл должен содержать листы "Оценивание", "Задания" и "Инфо".'
+    )
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+    is_update_request = context.user_data.get('expecting_update', False)
 
     message = update.message
     if not message:
@@ -349,7 +369,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text('Пожалуйста, отправьте Excel-файл (.xlsx или .xlsm).')
         return
 
-    await update.message.reply_text('Получаю файл...')
+    if is_update_request:
+        await update.message.reply_text('Обновляю информацию из нового файла...')
+    else:
+        await update.message.reply_text('Получаю файл...')
+    
     new_path = get_chat_file(chat_id)
     tg_file = await doc.get_file()
     await tg_file.download_to_drive(str(new_path))
@@ -365,7 +389,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    await update.message.reply_text('Файл сохранён для этого чата. Используйте /help для сводки.')
+    # Clear the update flag
+    context.user_data.pop('expecting_update', None)
+
+    if is_update_request:
+        await update.message.reply_text('Информация успешно обновлена! Используйте /help для сводки.')
+    else:
+        await update.message.reply_text('Файл сохранён для этого чата. Используйте /help для сводки.')
 
     # Schedule aggregated daily reminders for this chat
     try:
@@ -395,6 +425,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler('help', help_cmd))
     app.add_handler(CommandHandler('info', info_cmd))
+    app.add_handler(CommandHandler('update', update_cmd))
     # Handle standard documents and any kind of attachments (covers some clients)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.ATTACHMENT, handle_document))
 
