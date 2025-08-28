@@ -149,7 +149,7 @@ def format_nearest(assignments: List[Assignment], limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-def get_chat_file(chat_id: int) -> Path:
+def get_chat_file(chat_id: str) -> Path:
     return DATA_DIR / f"{chat_id}.xlsx"
 
 
@@ -251,7 +251,7 @@ def schedule_chat_reminders(chat_id: int, xlsx_path: Path, context: ContextTypes
 
     if TEST_MODE:
         # Run every 15 seconds for quick verification
-        jq.run_repeating(
+        job = jq.run_repeating(
             daily_reminder_callback,
             interval=15,
             first=0,
@@ -263,7 +263,7 @@ def schedule_chat_reminders(chat_id: int, xlsx_path: Path, context: ContextTypes
     # Schedule daily at 10:00 local time
     tzinfo = LOCAL_TZ if LOCAL_TZ else ZoneInfo('UTC')
     run_time = datetime.now(tzinfo).replace(hour=10, minute=0, second=0, microsecond=0).timetz()
-    jq.run_daily(
+    job = jq.run_daily(
         daily_reminder_callback,
         time=run_time,
         data={'chat_id': chat_id, 'xlsx_path': str(xlsx_path)},
@@ -273,7 +273,8 @@ def schedule_chat_reminders(chat_id: int, xlsx_path: Path, context: ContextTypes
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    xlsx_path = get_chat_file(chat_id)
+    name = f'{update.message.chat.title}_{chat_id}'
+    xlsx_path = get_chat_file(name)
     if not xlsx_path.exists():
         await update.message.reply_text(
             'Сначала загрузите Excel с листами "Оценивание" и "Задания". '
@@ -304,7 +305,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    xlsx_path = get_chat_file(chat_id)
+    name = f'{update.message.chat.title}_{chat_id}'
+    xlsx_path = get_chat_file(name)
     if not xlsx_path.exists():
         await update.message.reply_text(
             'Сначала загрузите Excel с листом "Инфо". Отправьте файл прямо сюда.'
@@ -321,11 +323,12 @@ async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = format_info(items)
     await update.message.reply_html(text)
 
+
 async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
     
     # Check if this is the authorized user
-    if chat_id != 669636800:
+    if user_id != 669636800:
         await update.message.reply_text(
             'У вас нет прав для использования этой команды. '
             'Доступ ограничен для администратора бота.'
@@ -339,6 +342,7 @@ async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         'Отправьте новый Excel-файл для обновления информации. '
         'Файл должен содержать листы "Оценивание", "Задания" и "Инфо".'
     )
+
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
@@ -360,7 +364,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     doc = att
                     break
 
-    # logger.info("Incoming attachment: %s", getattr(doc, 'file_name', None))
     if not doc:
         # Not an Excel document; ignore silently to avoid noise
         return
@@ -374,7 +377,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await update.message.reply_text('Получаю файл...')
     
-    new_path = get_chat_file(chat_id)
+    name = f'{update.message.chat.title}_{chat_id}'
+
+    new_path = get_chat_file(name)
     tg_file = await doc.get_file()
     await tg_file.download_to_drive(str(new_path))
 
@@ -389,23 +394,19 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # Clear the update flag
-    context.user_data.pop('expecting_update', None)
-
     if is_update_request:
         await update.message.reply_text('Информация успешно обновлена! Используйте /help для сводки.')
     else:
         await update.message.reply_text('Файл сохранён для этого чата. Используйте /help для сводки.')
 
-    # Schedule aggregated daily reminders for this chat
-    try:
-        schedule_chat_reminders(chat_id, new_path, context)
-        if TEST_MODE:
-            await update.message.reply_text('Тестовые напоминания активированы (каждые 15 секунд).')
-        else:
-            await update.message.reply_text('Ежедневные напоминания запланированы на 10:00.')
-    except Exception as exc:
-        await update.message.reply_text(f'Не удалось запланировать напоминания: {exc}')
+        try:
+            schedule_chat_reminders(chat_id, new_path, context)
+            if TEST_MODE:
+                await update.message.reply_text('Тестовые напоминания активированы (каждые 15 секунд).')
+            else:
+                await update.message.reply_text('Ежедневные напоминания запланированы на 10:00.')
+        except Exception as exc:
+            await update.message.reply_text(f'Не удалось запланировать напоминания: {exc}')
 
 
 def main() -> None:
